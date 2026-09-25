@@ -1,0 +1,722 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <link rel="icon" href="data:," />
+  <title>2048 AI 自動玩</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans+TC:wght@400;500;600;700&display=swap');
+
+    :root {
+      --bg: #e9ece8;
+      --panel: #f7f8f5;
+      --panel-2: #dfe3df;
+      --ink: #151a18;
+      --muted: #515b56;
+      --line: #88928d;
+      --line-strong: #1d2421;
+      --board: #151b1a;
+      --cell: #242c2a;
+      --signal: #00a56f;
+      --signal-soft: #c8f0dd;
+      --warn: #cb4b32;
+      --shadow: rgba(12, 18, 16, .16);
+      --cyan: #16c6d9;
+      --yellow: #f0cf2f;
+      --purple: #a96bd7;
+      --green: #35ba68;
+      --red: #e75953;
+      --blue: #3978d5;
+      --orange: #ef8b32;
+      --tile-ink: #07100d;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0c1110;
+        --panel: #151b19;
+        --panel-2: #1d2522;
+        --ink: #eff5f1;
+        --muted: #aebbb5;
+        --line: #52605a;
+        --line-strong: #c7d1cc;
+        --board: #070a09;
+        --cell: #171e1c;
+        --signal: #38e69f;
+        --signal-soft: #123c2b;
+        --warn: #ff7860;
+        --shadow: rgba(0, 0, 0, .45);
+        --cyan: #20d7e9;
+        --yellow: #f3d73b;
+        --purple: #bd7be8;
+        --green: #42ce76;
+        --red: #f1655f;
+        --blue: #4a8ae9;
+        --orange: #f59a42;
+        --tile-ink: #07100d;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { min-height: 100%; background: var(--bg); }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--ink);
+      font-family: "IBM Plex Sans TC", sans-serif;
+      background:
+        linear-gradient(rgba(80,100,90,.08) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(80,100,90,.08) 1px, transparent 1px),
+        var(--bg);
+      background-size: 24px 24px;
+      padding: clamp(14px, 3vw, 34px);
+      overflow-x: hidden;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    .app {
+      width: min(1060px, 100%);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(320px, 610px) minmax(260px, 1fr);
+      gap: clamp(18px, 3vw, 34px);
+      align-items: start;
+    }
+    .game-column { min-width: 0; }
+    .status-strip {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr 1fr;
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      box-shadow: 5px 5px 0 var(--shadow);
+      margin-bottom: 14px;
+    }
+    .metric { padding: 10px 12px; min-width: 0; }
+    .metric + .metric { border-left: 1px solid var(--line); }
+    .metric-label {
+      display: block;
+      font: 600 10px/1.2 "IBM Plex Mono", monospace;
+      letter-spacing: .09em;
+      color: var(--muted);
+      margin-bottom: 3px;
+    }
+    .metric-value {
+      display: block;
+      font: 700 clamp(18px, 4vw, 26px)/1 "IBM Plex Mono", monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .metric:first-child .metric-value { color: var(--signal); font-size: clamp(14px, 3vw, 18px); line-height: 1.45; }
+
+    .board-shell {
+      position: relative;
+      background: var(--board);
+      border: 2px solid var(--line-strong);
+      padding: clamp(8px, 2vw, 14px);
+      box-shadow: 8px 8px 0 var(--shadow);
+      touch-action: none;
+      user-select: none;
+    }
+    .board-shell::before {
+      content: "GRID_04×04";
+      position: absolute;
+      top: -20px;
+      right: 0;
+      font: 600 9px/1 "IBM Plex Mono", monospace;
+      letter-spacing: .12em;
+      color: var(--muted);
+    }
+    .board {
+      position: relative;
+      aspect-ratio: 1;
+      width: 100%;
+    }
+    .cell-grid, .tile-layer {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      grid-template-rows: repeat(4, 1fr);
+      gap: clamp(7px, 1.5vw, 12px);
+    }
+    .cell {
+      background: var(--cell);
+      border: 1px solid rgba(255,255,255,.07);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.18);
+    }
+    .tile {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      color: var(--tile-ink);
+      font: 700 clamp(22px, 6.2vw, 48px)/1 "IBM Plex Mono", monospace;
+      border: 2px solid rgba(5,12,10,.72);
+      box-shadow: inset -5px -5px 0 rgba(0,0,0,.15), inset 3px 3px 0 rgba(255,255,255,.22);
+      animation: tile-in 130ms ease-out;
+      overflow: hidden;
+    }
+    .tile::after {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      border: 1px solid rgba(0,0,0,.18);
+      pointer-events: none;
+    }
+    .tile.big { font-size: clamp(16px, 4.2vw, 33px); }
+    .tile.huge { font-size: clamp(12px, 3.2vw, 25px); }
+    @keyframes tile-in { from { transform: scale(.78); opacity: .4; } }
+
+    .mobile-pad {
+      display: none;
+      grid-template-columns: repeat(3, 56px);
+      grid-template-rows: repeat(2, 48px);
+      justify-content: center;
+      gap: 7px;
+      margin-top: 18px;
+    }
+    .pad-btn, .icon-btn, .restart-btn {
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      box-shadow: 3px 3px 0 var(--shadow);
+      cursor: pointer;
+      transition: transform 80ms, box-shadow 80ms, background 120ms;
+    }
+    .pad-btn:active, .icon-btn:active, .restart-btn:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--shadow); }
+    .pad-btn { font: 700 22px/1 "IBM Plex Mono", monospace; }
+    .pad-btn[data-dir="up"] { grid-column: 2; }
+    .pad-btn[data-dir="left"] { grid-column: 1; grid-row: 2; }
+    .pad-btn[data-dir="down"] { grid-column: 2; grid-row: 2; }
+    .pad-btn[data-dir="right"] { grid-column: 3; grid-row: 2; }
+
+    .side { display: grid; gap: 14px; }
+    .panel {
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      box-shadow: 5px 5px 0 var(--shadow);
+    }
+    .panel-head {
+      padding: 9px 12px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font: 600 11px/1.2 "IBM Plex Mono", monospace;
+      letter-spacing: .08em;
+    }
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      display: inline-block;
+      border-radius: 50%;
+      margin-right: 8px;
+      background: var(--muted);
+      box-shadow: 0 0 0 2px var(--panel);
+    }
+    .status-dot.on { background: var(--signal); box-shadow: 0 0 0 2px var(--panel), 0 0 10px var(--signal); }
+    .jev-body { padding: 14px; }
+    .toggle-row { display: flex; gap: 10px; align-items: stretch; }
+    .jev-toggle {
+      flex: 1;
+      min-height: 50px;
+      border: 1px solid var(--line-strong);
+      background: var(--panel-2);
+      cursor: pointer;
+      text-align: left;
+      padding: 8px 12px;
+      font: 700 13px/1.25 "IBM Plex Mono", monospace;
+    }
+    .jev-toggle[aria-pressed="true"] { background: var(--signal); color: #07120d; }
+    .restart-btn { width: 50px; font-size: 22px; }
+    .thinkbox {
+      margin-top: 12px;
+      min-height: 90px;
+      padding: 11px;
+      background: var(--board);
+      color: #dce8e2;
+      border: 1px solid var(--line);
+      font: 500 11px/1.55 "IBM Plex Mono", monospace;
+    }
+    .thinkbox .prompt { color: var(--signal); }
+    .thinkbox .choice { color: var(--yellow); }
+    .speed-row { margin-top: 14px; }
+    .speed-meta { display: flex; justify-content: space-between; color: var(--muted); font: 600 10px/1 "IBM Plex Mono", monospace; margin-bottom: 9px; }
+    input[type="range"] { width: 100%; accent-color: var(--signal); cursor: pointer; }
+    .manual { padding: 12px 14px 14px; color: var(--muted); font-size: 12px; line-height: 1.65; }
+    .manual kbd { font: 600 10px/1 "IBM Plex Mono", monospace; color: var(--ink); border: 1px solid var(--line); background: var(--panel-2); padding: 3px 5px; box-shadow: 1px 1px 0 var(--line); }
+    .legend { padding: 12px 14px 14px; display: flex; flex-wrap: wrap; gap: 8px 10px; }
+    .swatch { display: inline-flex; align-items: center; gap: 5px; font: 600 9px/1 "IBM Plex Mono", monospace; color: var(--muted); }
+    .swatch i { width: 13px; height: 13px; border: 1px solid rgba(0,0,0,.5); }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(3,7,6,.76);
+    }
+    .modal-backdrop[hidden] { display: none; }
+    .modal {
+      width: min(420px, 100%);
+      background: var(--panel);
+      border: 2px solid var(--line-strong);
+      box-shadow: 9px 9px 0 rgba(0,0,0,.35);
+    }
+    .modal-code { padding: 9px 14px; border-bottom: 1px solid var(--line); font: 600 10px/1 "IBM Plex Mono", monospace; color: var(--warn); }
+    .modal-content { padding: 20px; }
+    .modal h2 { margin: 0 0 8px; font: 700 24px/1.15 "IBM Plex Mono", monospace; }
+    .modal p { margin: 0; color: var(--muted); line-height: 1.6; font-size: 14px; }
+    .modal-actions { display: flex; gap: 9px; justify-content: flex-end; margin-top: 20px; }
+    .modal-actions button { border: 1px solid var(--line-strong); padding: 9px 14px; cursor: pointer; font-weight: 700; background: var(--panel-2); }
+    .modal-actions .primary { background: var(--signal); color: #07120d; }
+
+    @media (max-width: 760px) {
+      body { padding: 22px 12px 28px; }
+      .app { grid-template-columns: 1fr; gap: 20px; }
+      .game-column { width: min(100%, 560px); margin: 0 auto; }
+      .side { width: min(100%, 560px); margin: 0 auto; }
+      .mobile-pad { display: grid; }
+      .board-shell { box-shadow: 5px 5px 0 var(--shadow); }
+      .metric { padding: 8px 9px; }
+      .manual { display: none; }
+    }
+    @media (max-width: 370px) {
+      body { padding-inline: 8px; }
+      .status-strip { grid-template-columns: 1fr 1fr; }
+      .metric:first-child { grid-column: 1 / -1; border-bottom: 1px solid var(--line); }
+      .metric:nth-child(2) { border-left: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="game-column" aria-label="2048 遊戲區">
+      <div class="status-strip">
+        <div class="metric"><span class="metric-label">SYSTEM</span><span class="metric-value" id="systemState">等待輸入</span></div>
+        <div class="metric"><span class="metric-label">SCORE</span><span class="metric-value" id="score">0</span></div>
+        <div class="metric"><span class="metric-label">BEST · 最高紀錄</span><span class="metric-value" id="best">0</span></div>
+      </div>
+
+      <div class="board-shell" id="boardShell" aria-label="2048 棋盤，可用方向鍵、WASD 或滑動操作" tabindex="0">
+        <div class="board">
+          <div class="cell-grid" aria-hidden="true"></div>
+          <div class="tile-layer" id="tileLayer" aria-live="polite"></div>
+        </div>
+      </div>
+
+      <div class="mobile-pad" aria-label="螢幕方向鍵">
+        <button class="pad-btn" data-dir="up" aria-label="向上">↑</button>
+        <button class="pad-btn" data-dir="left" aria-label="向左">←</button>
+        <button class="pad-btn" data-dir="down" aria-label="向下">↓</button>
+        <button class="pad-btn" data-dir="right" aria-label="向右">→</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="panel">
+        <div class="panel-head"><span><i class="status-dot" id="jevDot"></i>AI // AUTOPILOT</span><span id="jevState">STANDBY</span></div>
+        <div class="jev-body">
+          <div class="toggle-row">
+            <button class="jev-toggle" id="jevToggle" aria-pressed="false">啟動 AI 自動玩<br><small>你可隨時接手</small></button>
+            <button class="restart-btn" id="restartBtn" aria-label="重新開始" title="重新開始">↻</button>
+          </div>
+          <div class="thinkbox" id="thinkbox"><span class="prompt">ai&gt;</span> 已連線。啟動後 AI 會評估空格、單調性、平滑度與最大值位置。</div>
+          <div class="speed-row">
+            <div class="speed-meta"><span>AUTOPLAY SPEED</span><span id="speedLabel">標準 · 380ms</span></div>
+            <input id="speed" type="range" min="90" max="850" step="10" value="380" aria-label="AI 自動遊玩速度" />
+          </div>
+        </div>
+      </section>
+
+      <section class="panel manual-panel">
+        <div class="panel-head"><span>MANUAL // INPUT</span><span>READY</span></div>
+        <div class="manual">
+          鍵盤 <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> 或 <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd><br>
+          手機可在棋盤滑動，或使用螢幕方向鍵。手動移動會自動關閉 AI。
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><span>PALETTE // 7-COLOR</span><span>TETROMINO</span></div>
+        <div class="legend" aria-label="方塊配色">
+          <span class="swatch"><i style="background:var(--cyan)"></i>2</span>
+          <span class="swatch"><i style="background:var(--yellow)"></i>4</span>
+          <span class="swatch"><i style="background:var(--purple)"></i>8</span>
+          <span class="swatch"><i style="background:var(--green)"></i>16</span>
+          <span class="swatch"><i style="background:var(--red)"></i>32</span>
+          <span class="swatch"><i style="background:var(--blue)"></i>64</span>
+          <span class="swatch"><i style="background:var(--orange)"></i>128+</span>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-code" id="modalCode">SYS_MESSAGE</div>
+      <div class="modal-content">
+        <h2 id="modalTitle"></h2>
+        <p id="modalText"></p>
+        <div class="modal-actions" id="modalActions"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+      var SIZE = 4;
+      var board = [];
+      var score = 0;
+      var best = 0;
+      var wonShown = false;
+      var gameEnded = false;
+      var jevOn = false;
+      var jevTimer = null;
+      var touchStart = null;
+      var directions = ["up", "left", "right", "down"];
+      var arrowName = { up: "↑ 上", down: "↓ 下", left: "← 左", right: "→ 右" };
+      var colorVars = ["--cyan", "--yellow", "--purple", "--green", "--red", "--blue", "--orange"];
+
+      var tileLayer = document.getElementById("tileLayer");
+      var scoreEl = document.getElementById("score");
+      var bestEl = document.getElementById("best");
+      var systemState = document.getElementById("systemState");
+      var jevToggle = document.getElementById("jevToggle");
+      var jevDot = document.getElementById("jevDot");
+      var jevState = document.getElementById("jevState");
+      var thinkbox = document.getElementById("thinkbox");
+      var speed = document.getElementById("speed");
+      var speedLabel = document.getElementById("speedLabel");
+      var modalBackdrop = document.getElementById("modalBackdrop");
+      var modalTitle = document.getElementById("modalTitle");
+      var modalText = document.getElementById("modalText");
+      var modalCode = document.getElementById("modalCode");
+      var modalActions = document.getElementById("modalActions");
+
+      document.querySelector(".cell-grid").innerHTML = new Array(16).fill("<div class=\"cell\"></div>").join("");
+
+      function emptyBoard() {
+        return Array.from({ length: SIZE }, function () { return new Array(SIZE).fill(0); });
+      }
+
+      function cloneBoard(src) { return src.map(function (row) { return row.slice(); }); }
+
+      function openModal(code, title, text, actions) {
+        modalCode.textContent = code;
+        modalTitle.textContent = title;
+        modalText.textContent = text;
+        modalActions.innerHTML = "";
+        actions.forEach(function (action) {
+          var btn = document.createElement("button");
+          btn.textContent = action.label;
+          if (action.primary) btn.className = "primary";
+          btn.addEventListener("click", function () {
+            modalBackdrop.hidden = true;
+            action.run();
+          });
+          modalActions.appendChild(btn);
+        });
+        modalBackdrop.hidden = false;
+        setTimeout(function () { modalActions.querySelector("button").focus(); }, 0);
+      }
+
+      function restart(confirmFirst) {
+        if (confirmFirst) {
+          stopJev("PAUSED");
+          openModal("SYS_CONFIRM", "重新開始？", "目前棋盤與分數會清除，最高紀錄會保留。", [
+            { label: "取消", run: function () { systemState.textContent = "等待輸入"; } },
+            { label: "確認重開", primary: true, run: function () { restart(false); } }
+          ]);
+          return;
+        }
+        clearTimeout(jevTimer);
+        board = emptyBoard();
+        score = 0;
+        wonShown = false;
+        gameEnded = false;
+        addRandom(board);
+        addRandom(board);
+        systemState.textContent = "等待輸入";
+        thinkbox.innerHTML = '<span class="prompt">ai&gt;</span> 新棋盤就緒。啟動 AI 自動玩，或由你先走。';
+        render();
+        if (jevOn) scheduleJev(250);
+      }
+
+      function emptyCells(src) {
+        var out = [];
+        for (var r = 0; r < SIZE; r++) for (var c = 0; c < SIZE; c++) if (!src[r][c]) out.push([r, c]);
+        return out;
+      }
+
+      function addRandom(target) {
+        var empty = emptyCells(target);
+        if (!empty.length) return false;
+        var spot = empty[Math.floor(Math.random() * empty.length)];
+        target[spot[0]][spot[1]] = Math.random() < .9 ? 2 : 4;
+        return true;
+      }
+
+      function compress(line) {
+        var vals = line.filter(function (v) { return v; });
+        var result = [];
+        var gained = 0;
+        for (var i = 0; i < vals.length; i++) {
+          if (vals[i] === vals[i + 1]) {
+            var merged = vals[i] * 2;
+            result.push(merged);
+            gained += merged;
+            i++;
+          } else result.push(vals[i]);
+        }
+        while (result.length < SIZE) result.push(0);
+        return { line: result, gained: gained };
+      }
+
+      function arraysEqual(a, b) {
+        for (var r = 0; r < SIZE; r++) for (var c = 0; c < SIZE; c++) if (a[r][c] !== b[r][c]) return false;
+        return true;
+      }
+
+      function simulate(src, dir) {
+        var result = emptyBoard();
+        var gained = 0;
+        var r, c, line, packed;
+        if (dir === "left" || dir === "right") {
+          for (r = 0; r < SIZE; r++) {
+            line = src[r].slice();
+            if (dir === "right") line.reverse();
+            packed = compress(line); gained += packed.gained;
+            if (dir === "right") packed.line.reverse();
+            result[r] = packed.line;
+          }
+        } else {
+          for (c = 0; c < SIZE; c++) {
+            line = [];
+            for (r = 0; r < SIZE; r++) line.push(src[r][c]);
+            if (dir === "down") line.reverse();
+            packed = compress(line); gained += packed.gained;
+            if (dir === "down") packed.line.reverse();
+            for (r = 0; r < SIZE; r++) result[r][c] = packed.line[r];
+          }
+        }
+        return { board: result, gained: gained, moved: !arraysEqual(src, result) };
+      }
+
+      function hasMoves(src) {
+        if (emptyCells(src).length) return true;
+        for (var i = 0; i < directions.length; i++) if (simulate(src, directions[i]).moved) return true;
+        return false;
+      }
+
+      function maxTile(src) {
+        var max = 0;
+        src.forEach(function (row) { row.forEach(function (v) { if (v > max) max = v; }); });
+        return max;
+      }
+
+      function render() {
+        tileLayer.innerHTML = "";
+        for (var r = 0; r < SIZE; r++) {
+          for (var c = 0; c < SIZE; c++) {
+            var value = board[r][c];
+            if (!value) continue;
+            var tile = document.createElement("div");
+            tile.className = "tile" + (value >= 1024 ? " big" : "") + (value >= 16384 ? " huge" : "");
+            tile.style.gridRow = String(r + 1);
+            tile.style.gridColumn = String(c + 1);
+            var exponent = Math.round(Math.log(value) / Math.log(2));
+            tile.style.background = "var(" + colorVars[(exponent - 1) % colorVars.length] + ")";
+            tile.textContent = value;
+            tile.setAttribute("aria-label", String(value));
+            tileLayer.appendChild(tile);
+          }
+        }
+        scoreEl.textContent = score.toLocaleString();
+        if (score > best) best = score;
+        bestEl.textContent = best.toLocaleString();
+      }
+
+      function performMove(dir, source) {
+        if (gameEnded || !modalBackdrop.hidden) return false;
+        if (source === "manual" && jevOn) stopJev("MANUAL");
+        var result = simulate(board, dir);
+        if (!result.moved) {
+          if (source === "manual") systemState.textContent = "方向無效";
+          return false;
+        }
+        board = result.board;
+        score += result.gained;
+        addRandom(board);
+        systemState.textContent = source === "jev" ? "AI 操作中" : "玩家操作中";
+        render();
+
+        if (!wonShown && maxTile(board) >= 2048) {
+          wonShown = true;
+          var resumeAuto = jevOn;
+          clearTimeout(jevTimer);
+          openModal("MILESTONE_2048", "2048 達成", "你已合成 2048。可以繼續挑戰更高數字，或重新開始。", [
+            { label: "重新開始", run: function () { restart(false); } },
+            { label: "繼續挑戰", primary: true, run: function () { if (resumeAuto) scheduleJev(180); } }
+          ]);
+        } else if (!hasMoves(board)) {
+          gameEnded = true;
+          stopJev("GAME_OVER");
+          openModal("NO_VALID_MOVES", "Game Over", "棋盤已滿，且沒有可合併的相鄰方塊。最終分數：" + score.toLocaleString(), [
+            { label: "再玩一次", primary: true, run: function () { restart(false); } }
+          ]);
+        }
+        return true;
+      }
+
+      function log2(v) { return v ? Math.log(v) / Math.log(2) : 0; }
+
+      function heuristic(src) {
+        var empties = emptyCells(src).length;
+        var smooth = 0;
+        var monotonic = 0;
+        var merges = 0;
+        var r, c;
+        for (r = 0; r < SIZE; r++) {
+          var incR = 0, decR = 0;
+          for (c = 0; c < SIZE - 1; c++) {
+            var a = log2(src[r][c]), b = log2(src[r][c + 1]);
+            if (a && b) { smooth -= Math.abs(a - b); if (a === b) merges++; }
+            if (a > b) decR += b - a; else incR += a - b;
+          }
+          monotonic += Math.max(incR, decR);
+        }
+        for (c = 0; c < SIZE; c++) {
+          var incC = 0, decC = 0;
+          for (r = 0; r < SIZE - 1; r++) {
+            var x = log2(src[r][c]), y = log2(src[r + 1][c]);
+            if (x && y) { smooth -= Math.abs(x - y); if (x === y) merges++; }
+            if (x > y) decC += y - x; else incC += x - y;
+          }
+          monotonic += Math.max(incC, decC);
+        }
+        var max = maxTile(src);
+        var corner = (src[0][0] === max || src[0][3] === max || src[3][0] === max || src[3][3] === max) ? log2(max) : 0;
+        return empties * 270 + monotonic * 35 + smooth * 14 + corner * 95 + merges * 45;
+      }
+
+      function expectAfterSpawn(src) {
+        var empties = emptyCells(src);
+        if (!empties.length) return heuristic(src);
+        var total = 0;
+        for (var i = 0; i < empties.length; i++) {
+          var r = empties[i][0], c = empties[i][1];
+          var b2 = cloneBoard(src); b2[r][c] = 2;
+          var b4 = cloneBoard(src); b4[r][c] = 4;
+          var best2 = -Infinity, best4 = -Infinity;
+          directions.forEach(function (dir) {
+            var m2 = simulate(b2, dir); if (m2.moved) best2 = Math.max(best2, heuristic(m2.board) + m2.gained * 3);
+            var m4 = simulate(b4, dir); if (m4.moved) best4 = Math.max(best4, heuristic(m4.board) + m4.gained * 3);
+          });
+          if (best2 === -Infinity) best2 = heuristic(b2);
+          if (best4 === -Infinity) best4 = heuristic(b4);
+          total += best2 * .9 + best4 * .1;
+        }
+        return total / empties.length;
+      }
+
+      function chooseJevMove() {
+        var candidates = [];
+        directions.forEach(function (dir) {
+          var moved = simulate(board, dir);
+          if (!moved.moved) return;
+          var value = expectAfterSpawn(moved.board) + moved.gained * 4;
+          candidates.push({ dir: dir, value: value, gained: moved.gained, empties: emptyCells(moved.board).length });
+        });
+        candidates.sort(function (a, b) { return b.value - a.value; });
+        return { best: candidates[0], all: candidates };
+      }
+
+      function jevStep() {
+        if (!jevOn || gameEnded || !modalBackdrop.hidden) return;
+        var decision = chooseJevMove();
+        if (!decision.best) {
+          gameEnded = true;
+          stopJev("GAME_OVER");
+          return;
+        }
+        var top = decision.all.slice(0, 3).map(function (x) { return arrowName[x.dir] + " " + Math.round(x.value); }).join(" · ");
+        thinkbox.innerHTML = '<span class="prompt">ai&gt;</span> 掃描 ' + decision.all.length + ' 個有效方向<br><span class="choice">選擇 ' + arrowName[decision.best.dir] + '</span>｜預期值 ' + Math.round(decision.best.value) + '<br>空格 ' + decision.best.empties + '｜合併收益 +' + decision.best.gained + '<br><small>' + top + '</small>';
+        performMove(decision.best.dir, "jev");
+        if (jevOn && modalBackdrop.hidden) scheduleJev(Number(speed.value));
+      }
+
+      function scheduleJev(delay) {
+        clearTimeout(jevTimer);
+        jevTimer = setTimeout(jevStep, delay);
+      }
+
+      function startJev() {
+        if (gameEnded) { restart(false); }
+        jevOn = true;
+        jevToggle.setAttribute("aria-pressed", "true");
+        jevToggle.innerHTML = "停止 AI／由我接手<br><small>自動玩進行中</small>";
+        jevDot.classList.add("on");
+        jevState.textContent = "THINKING";
+        systemState.textContent = "AI 已接管";
+        scheduleJev(120);
+      }
+
+      function stopJev(reason) {
+        jevOn = false;
+        clearTimeout(jevTimer);
+        jevToggle.setAttribute("aria-pressed", "false");
+        jevToggle.innerHTML = "啟動 AI 自動玩<br><small>你可隨時接手</small>";
+        jevDot.classList.remove("on");
+        jevState.textContent = reason || "STANDBY";
+        if (reason === "MANUAL") thinkbox.innerHTML = '<span class="prompt">ai&gt;</span> 已交回控制。AI 已停止，你的移動不會被覆蓋。';
+      }
+
+      document.addEventListener("keydown", function (e) {
+        var map = { ArrowUp: "up", w: "up", W: "up", ArrowDown: "down", s: "down", S: "down", ArrowLeft: "left", a: "left", A: "left", ArrowRight: "right", d: "right", D: "right" };
+        if (map[e.key]) { e.preventDefault(); performMove(map[e.key], "manual"); }
+        if (e.key === "Escape" && !modalBackdrop.hidden) {
+          var first = modalActions.querySelector("button");
+          if (first) first.click();
+        }
+      });
+
+      document.querySelectorAll(".pad-btn").forEach(function (btn) {
+        btn.addEventListener("click", function () { performMove(btn.getAttribute("data-dir"), "manual"); });
+      });
+
+      var boardShell = document.getElementById("boardShell");
+      boardShell.addEventListener("touchstart", function (e) {
+        var t = e.changedTouches[0]; touchStart = { x: t.clientX, y: t.clientY };
+      }, { passive: true });
+      boardShell.addEventListener("touchend", function (e) {
+        if (!touchStart) return;
+        var t = e.changedTouches[0];
+        var dx = t.clientX - touchStart.x, dy = t.clientY - touchStart.y;
+        touchStart = null;
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < 28) return;
+        performMove(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up"), "manual");
+      }, { passive: true });
+
+      jevToggle.addEventListener("click", function () { if (jevOn) stopJev("STANDBY"); else startJev(); });
+      document.getElementById("restartBtn").addEventListener("click", function () { restart(true); });
+      speed.addEventListener("input", function () {
+        var ms = Number(speed.value);
+        var label = ms < 220 ? "極速" : ms < 500 ? "標準" : "觀察";
+        speedLabel.textContent = label + " · " + ms + "ms";
+        if (jevOn) scheduleJev(ms);
+      });
+
+      restart(false);
+    })();
+  </script>
+</body>
+</html>
